@@ -65,33 +65,33 @@ jobs:
           command: test
           args: --no-default-features --features nightly ${{ matrix.features }}
 
-  test-miri:
-    name: Miri Test
-    runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        nightly:
-          - ""
-          - --features nightly
-        features:
-          - ""
-          - --features std
-
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v2
-
-      - name: Install toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: nightly
-          override: true
-          components: miri
-
-      - name: Run miri test
-        uses: actions-rs/cargo@v1
-        with:
-          command: miri
-          args: test --no-default-features ${{ matrix.features }} ${{ matrix.nightly }}
+#  test-miri:
+#    name: Miri Test
+#    runs-on: ubuntu-latest
+#
+#    strategy:
+#      matrix:
+#        nightly:
+#          - ""
+#          - --features nightly
+#        features:
+#          - ""
+#          - --features std
+#
+#    steps:
+#      - name: Checkout sources
+#        uses: actions/checkout@v2
+#
+#      - name: Install toolchain
+#        uses: actions-rs/toolchain@v1
+#        with:
+#          profile: minimal
+#          toolchain: nightly
+#          override: true
+#          components: miri
+#
+#      - name: Run miri test
+#        uses: actions-rs/cargo@v1
+#        with:
+#          command: miri
+#          args: test --no-default-features ${{ matrix.features }} ${{ matrix.nightly }}
