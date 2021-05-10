@@ -3,20 +3,25 @@ name = "single_executor"
 version = "0.1.0"
 authors = ["buzzec <buzzec@buzzec.net>"]
 edition = "2018"
+license = "MIT OR Apache-2.0"
+description = "Traits for concurrent primitives."
+homepage = "https://github.com/Buzzec/single_executor"
+repository = "https://github.com/Buzzec/single_executor"
+readme = "README.md"
+keywords = ["multithread"]
+exclude = [
+    ".idea/*"
+]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-#concurrency_traits = { version = "0.4.0", default-features = false, features = ["alloc"] }
-concurrency_traits = { git = "https://github.com/Buzzec/concurrency_traits.git", default-features = false, features = ["alloc"] }
+concurrency_traits = { version = "0.5.0", default-features = false, features = ["alloc"] }
 simple_futures = { version = "0.1.1", default-features = false, features = ["alloc"] }
 atomic_swapping = "0.1.0"
 bitflags = "1.2.1"
 
-[dev-dependencies]
-crossbeam = "0.8.0"
-concurrency_traits = { git = "https://github.com/Buzzec/concurrency_traits.git", default-features = false, features = ["std", "impl_crossbeam"] }
-
 [features]
 default = ["std"]
 std = ["concurrency_traits/std"]
+nightly = ["concurrency_traits/nightly"]

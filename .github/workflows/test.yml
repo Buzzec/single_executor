@@ -1,0 +1,97 @@
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+name: test
+
+jobs:
+  test-stable:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - stable
+        features:
+          - ""
+          - --features std
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Install toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.rust }}
+          override: true
+
+      - name: Run cargo test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --no-default-features ${{ matrix.features }}
+
+  test-nightly:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - nightly
+        features:
+          - ""
+          - --features std
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Install toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.rust }}
+          override: true
+
+      - name: Run cargo test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --no-default-features --features nightly ${{ matrix.features }}
+
+  test-miri:
+    name: Miri Test
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        nightly:
+          - ""
+          - --features nightly
+        features:
+          - ""
+          - --features std
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Install toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+          components: miri
+
+      - name: Run miri test
+        uses: actions-rs/cargo@v1
+        with:
+          command: miri
+          args: test --no-default-features ${{ matrix.features }} ${{ matrix.nightly }}

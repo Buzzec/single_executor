@@ -1,10 +1,10 @@
-use core::pin::Pin;
+use crate::fmt;
 use alloc::sync::Arc;
 use core::cell::UnsafeCell;
-use core::future::Future;
 use core::fmt::{Debug, Formatter};
-use crate::fmt;
-use core::task::{Waker, Context, Poll};
+use core::future::Future;
+use core::pin::Pin;
+use core::task::{Context, Waker};
 
 type TaskFuture = Pin<Arc<UnsafeCell<dyn Future<Output = ()>>>>;
 /// The tasks used by [`AsyncExecutor`](crate::AsyncExecutor).
@@ -37,9 +37,11 @@ impl AsyncTask {
 
     /// # Safety
     /// Must be called only on executor thread
-    pub(crate) unsafe fn poll(&self, waker: &Waker) -> Poll<()> {
+    pub(crate) unsafe fn poll(&self, waker: &Waker) {
         // Safety: Can be created because the arc ensures this future won't move and this will only be called on a single thread.
-        Pin::new_unchecked(&mut *self.future.get()).poll(&mut Context::from_waker(&waker))
+        // Ignored because if pending the waker will re-add when ready
+        let _ = Pin::new_unchecked(&mut *self.future.as_ref().get())
+            .poll(&mut Context::from_waker(&waker));
     }
 }
 // Safety: As long as nothing !Send is accessed outside the executor thread this
