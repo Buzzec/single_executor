@@ -77,6 +77,8 @@ pub type AsyncExecutorStd<Q> = AsyncExecutor<Q, concurrency_traits::StdThreadFun
 ///
 /// # Example
 /// ```
+/// # #[cfg(feature = "std")]
+/// # {
 /// use concurrency_traits::StdThreadFunctions;
 /// use concurrency_traits::queue::ParkQueueStd;
 /// use single_executor::{SleepFutureRunner, spawn_blocking, AsyncExecutorStd};
@@ -126,6 +128,7 @@ pub type AsyncExecutorStd<Q> = AsyncExecutor<Q, concurrency_traits::StdThreadFun
 ///     stop_clone.store(true, Ordering::Relaxed);
 /// });
 /// executor.run(stop); // Keeps running until stop is set to true
+/// # }
 /// ```
 ///
 /// MAKE SURE NONE OF YOUR SUBMISSIONS BLOCK OR YOUR WHOLE PROGRAM WILL COME
@@ -320,6 +323,7 @@ where
     }
 }
 
+#[cfg(feature = "std")]
 #[cfg(test)]
 mod test {
     use crate::{AsyncExecutor, SleepFutureRunner};

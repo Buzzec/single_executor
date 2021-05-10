@@ -163,6 +163,7 @@ where
     future: CompleteFutureHandle,
 }
 
+#[cfg(feature = "std")]
 #[cfg(test)]
 mod test {
     use crate::SleepFutureRunner;
