@@ -6,10 +6,14 @@
 extern crate alloc;
 
 mod async_task;
+mod atomic_state;
 mod sleep_future;
+mod timeout_future;
 
 pub use async_task::*;
+pub use atomic_state::*;
 pub use sleep_future::*;
+pub use timeout_future::*;
 
 use alloc::boxed::Box;
 use alloc::sync::{Arc, Weak};

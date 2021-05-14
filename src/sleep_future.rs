@@ -6,6 +6,8 @@ use core::future::Future;
 use core::time::Duration;
 use simple_futures::complete_future::{CompleteFuture, CompleteFutureHandle};
 use alloc::sync::Weak;
+use core::task::{Context, Poll};
+use core::pin::Pin;
 
 /// Runs asynchronous sleep functions by launching a separate handler thread. Each new instance of this spawns a thread.
 #[derive(Debug)]
@@ -103,7 +105,7 @@ where
     }
 
     /// Creates a future that sleeps for a given duration from this call.
-    pub fn sleep_for(&self, time: Duration) -> impl Future<Output = ()> {
+    pub fn sleep_for(&self, time: Duration) -> SleepFuture {
         let complete_future = CompleteFuture::new();
         assert!(
             self.inner
@@ -115,11 +117,11 @@ where
                 .is_ok(),
             "Could not push to queue!"
         );
-        complete_future
+        SleepFuture(complete_future)
     }
 
     /// Creates a future that sleeps until a given [`CS::InstantType`](TimeFunctions::InstantType).
-    pub fn sleep_until(&self, instant: CS::InstantType) -> impl Future<Output = ()> {
+    pub fn sleep_until(&self, instant: CS::InstantType) -> SleepFuture {
         let complete_future = CompleteFuture::new();
         if instant < CS::current_time() {
             assert!(!complete_future.complete());
@@ -135,7 +137,7 @@ where
                 "Could not push to queue"
             );
         }
-        complete_future
+        SleepFuture(complete_future)
     }
 
     /// Gets a shared reference to the [`CS::ThreadHandle`](TryThreadSpawner::ThreadHandle) that is running the sleep operations.
@@ -151,6 +153,17 @@ where
 #[derive(Debug)]
 struct SleepFutureRunnerInner<Q> {
     queue: Q,
+}
+
+/// The future given by [`SleepFutureRunner`].
+#[derive(Debug)]
+pub struct SleepFuture(CompleteFuture);
+impl Future for SleepFuture{
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        Pin::new(&mut self.0).poll(cx)
+    }
 }
 
 /// Internal message that the queue in [`SleepFutureRunner`] contains.
