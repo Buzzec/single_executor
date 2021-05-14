@@ -8,6 +8,7 @@ use simple_futures::complete_future::{CompleteFuture, CompleteFutureHandle};
 use alloc::sync::Weak;
 use core::task::{Context, Poll};
 use core::pin::Pin;
+use crate::EnsureSend;
 
 /// Runs asynchronous sleep functions by launching a separate handler thread. Each new instance of this spawns a thread.
 #[derive(Debug)]
@@ -165,6 +166,7 @@ impl Future for SleepFuture{
         Pin::new(&mut self.0).poll(cx)
     }
 }
+impl EnsureSend for SleepFuture{}
 
 /// Internal message that the queue in [`SleepFutureRunner`] contains.
 #[derive(Debug)]

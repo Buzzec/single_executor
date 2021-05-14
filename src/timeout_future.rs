@@ -1,6 +1,6 @@
 use core::sync::atomic::{AtomicBool, Ordering, AtomicU8};
 use core::future::Future;
-use crate::{SleepFutureRunner, SleepFuture, SleepMessage};
+use crate::{SleepFutureRunner, SleepFuture, SleepMessage, EnsureSend};
 use concurrency_traits::{TryThreadSpawner, TimeFunctions};
 use core::time::Duration;
 use core::task::{Context, Poll, Waker, RawWaker, RawWakerVTable};
@@ -13,13 +13,13 @@ use core::mem::forget;
 
 /// A future that can timeout.
 #[derive(Debug)]
-pub struct TimoutFuture<F>{
+pub struct TimeoutFuture<F>{
     inner: Arc<TimeoutFutureInner>,
     should_stop: Option<Arc<AtomicBool>>,
     future: F,
     timeout_future: SleepFuture,
 }
-impl<F> TimoutFuture<F> {
+impl<F> TimeoutFuture<F> {
     /// Creates a new timeout future from a given future.
     pub fn new<Q, CS>(future: F, sleep_runner: &SleepFutureRunner<Q, CS>, timeout: Duration) -> Self where Q: 'static + TimeoutQueue<Item=SleepMessage<CS>> + Send + Sync, CS: TimeFunctions + TryThreadSpawner<()> {
         Self {
@@ -47,7 +47,7 @@ impl<F> TimoutFuture<F> {
         }
     }
 }
-impl<F> TimoutFuture<F> where F: Future{
+impl<F> TimeoutFuture<F> where F: Future{
     unsafe fn poll_future(&mut self) -> Poll<F::Output>{
         Pin::new_unchecked(&mut self.future).poll(&mut Context::from_waker(&Waker::from_raw(self.inner.clone().into_future_waker())))
     }
@@ -56,7 +56,7 @@ impl<F> TimoutFuture<F> where F: Future{
         Pin::new(&mut self.timeout_future).poll(&mut Context::from_waker(unsafe{ &Waker::from_raw(self.inner.clone().into_timeout_waker()) }))
     }
 }
-impl<F> Future for TimoutFuture<F> where F: Future{
+impl<F> Future for TimeoutFuture<F> where F: Future{
     type Output = Result<F::Output, ()>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -85,6 +85,7 @@ impl<F> Future for TimoutFuture<F> where F: Future{
         Poll::Pending
     }
 }
+impl<F> EnsureSend for TimeoutFuture<F> where F: Send{}
 
 #[derive(Debug)]
 struct TimeoutFutureInner{
