@@ -1,14 +1,14 @@
+use crate::EnsureSend;
 use alloc::sync::Arc;
+use alloc::sync::Weak;
 use alloc::vec::Vec;
 use concurrency_traits::queue::TimeoutQueue;
 use concurrency_traits::{ThreadSpawner, TimeFunctions, TryThreadSpawner};
 use core::future::Future;
+use core::pin::Pin;
+use core::task::{Context, Poll};
 use core::time::Duration;
 use simple_futures::complete_future::{CompleteFuture, CompleteFutureHandle};
-use alloc::sync::Weak;
-use core::task::{Context, Poll};
-use core::pin::Pin;
-use crate::EnsureSend;
 
 /// Runs asynchronous sleep functions by launching a separate handler thread. Each new instance of this spawns a thread.
 #[derive(Debug)]
@@ -64,7 +64,11 @@ where
                         continue 'MainLoop;
                     } else {
                         let current_time = CS::current_time();
-                        let pop_result = if message.sleep_until <= current_time{ inner.queue.try_pop() } else{ inner.queue.pop_timeout(message.sleep_until - current_time) };
+                        let pop_result = if message.sleep_until <= current_time {
+                            inner.queue.try_pop()
+                        } else {
+                            inner.queue.pop_timeout(message.sleep_until - current_time)
+                        };
                         match pop_result {
                             None => {
                                 if message.sleep_until <= CS::current_time() {
@@ -159,14 +163,14 @@ struct SleepFutureRunnerInner<Q> {
 /// The future given by [`SleepFutureRunner`].
 #[derive(Debug)]
 pub struct SleepFuture(CompleteFuture);
-impl Future for SleepFuture{
+impl Future for SleepFuture {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Pin::new(&mut self.0).poll(cx)
     }
 }
-impl EnsureSend for SleepFuture{}
+impl EnsureSend for SleepFuture {}
 
 /// Internal message that the queue in [`SleepFutureRunner`] contains.
 #[derive(Debug)]

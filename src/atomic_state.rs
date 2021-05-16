@@ -70,11 +70,11 @@ macro_rules! atomic_state {
     };
 }
 
-atomic_state!(pub, AtomicU8State,    AtomicU8,   u8);
-atomic_state!(pub, AtomicU16State,   AtomicU16,  u16);
-atomic_state!(pub, AtomicU32State,   AtomicU32,  u32);
-atomic_state!(pub, AtomicU64State,   AtomicU64,  u64);
-atomic_state!(pub, AtomicI8State,    AtomicI8,   i8);
-atomic_state!(pub, AtomicI16State,   AtomicI16,  i16);
-atomic_state!(pub, AtomicI32State,   AtomicI32,  i32);
-atomic_state!(pub, AtomicI64State,   AtomicI64,  i64);
+atomic_state!(pub, AtomicU8State, AtomicU8, u8);
+atomic_state!(pub, AtomicU16State, AtomicU16, u16);
+atomic_state!(pub, AtomicU32State, AtomicU32, u32);
+atomic_state!(pub, AtomicU64State, AtomicU64, u64);
+atomic_state!(pub, AtomicI8State, AtomicI8, i8);
+atomic_state!(pub, AtomicI16State, AtomicI16, i16);
+atomic_state!(pub, AtomicI32State, AtomicI32, i32);
+atomic_state!(pub, AtomicI64State, AtomicI64, i64);

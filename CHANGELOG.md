@@ -1,3 +1,6 @@
+# single_executor v0.2.0
+- Changed `TimeoutFuture` to use `RaceFuture` from `simple_futures`
+
 # single_executor v0.1.1
 - Added Atomic States
 - Added `TimeoutFuture`
