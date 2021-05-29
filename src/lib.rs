@@ -7,11 +7,13 @@ extern crate alloc;
 
 mod async_task;
 mod atomic_state;
+mod multi_complete_future;
 mod sleep_future;
 mod timeout_future;
 
 pub use async_task::*;
 pub use atomic_state::*;
+pub use multi_complete_future::*;
 pub use sleep_future::*;
 pub use timeout_future::*;
 
