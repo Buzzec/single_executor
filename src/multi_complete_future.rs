@@ -7,7 +7,7 @@ use core::pin::Pin;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::{Context, Poll, Waker};
 
-/// A version of [`CompleteFuture`] that can be cloned to have multiple futures pointing to the same "complete-ness".
+/// A version of [`CompleteFuture`](simple_futures::complete_future::CompleteFuture) that can be cloned to have multiple futures pointing to the same "complete-ness".
 #[derive(Clone, Debug)]
 pub struct MultiCompleteFuture<CS> {
     inner: Arc<MultiCompleteFutureInner<CS>>,
