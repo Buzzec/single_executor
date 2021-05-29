@@ -51,6 +51,16 @@ where
         }
     }
 }
+impl<CS> Default for MultiCompleteFuture<CS> {
+    fn default() -> Self {
+        Self {
+            inner: Arc::new(MultiCompleteFutureInner {
+                waker_queue: SpinLock::new((false, VecDeque::new())),
+                complete: AtomicBool::new(false),
+            }),
+        }
+    }
+}
 
 #[derive(Debug)]
 struct MultiCompleteFutureInner<CS> {

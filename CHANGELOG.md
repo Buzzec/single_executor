@@ -1,3 +1,7 @@
+### single_executor v0.3.2
+- Added `Default` to `MultiCompleteFuture`
+- Added `polling_future` function
+
 ### single_executor v0.3.1
 - Added `Clone` to executor handles
 
