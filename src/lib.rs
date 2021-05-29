@@ -278,7 +278,7 @@ static WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
 );
 
 /// A handle to an executor allowing submission of tasks.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ExecutorHandle<Q> {
     queue: Weak<Q>,
 }
@@ -302,9 +302,16 @@ where
         }
     }
 }
+impl<Q> Clone for ExecutorHandle<Q> {
+    fn clone(&self) -> Self {
+        Self {
+            queue: self.queue.clone(),
+        }
+    }
+}
 
 /// A handle to an executor allowing submission of tasks. This handle may not be sent across threads but can submit [`!Send`](Send) futures.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct LocalExecutorHandle<Q> {
     queue: Weak<Q>,
     /// Block send and sync
@@ -327,6 +334,14 @@ where
                     .expect("Queue is full!");
                 Ok(())
             }
+        }
+    }
+}
+impl<Q> Clone for LocalExecutorHandle<Q> {
+    fn clone(&self) -> Self {
+        Self {
+            queue: self.queue.clone(),
+            phantom_send_sync: Default::default(),
         }
     }
 }

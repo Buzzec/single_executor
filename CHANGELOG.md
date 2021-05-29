@@ -1,4 +1,7 @@
 ### single_executor v0.3.3
+- Fixed handle clone
+
+### single_executor v0.3.3
 - Fixed `MultiCompleteFuture` clone
 
 ### single_executor v0.3.2
