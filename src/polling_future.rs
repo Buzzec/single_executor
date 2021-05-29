@@ -12,7 +12,7 @@ pub async fn polling_future<Q, CS>(
     CS: TryThreadSpawner<()> + TimeFunctions,
     Q: 'static + TimeoutQueue<Item = SleepMessage<CS>> + Send + Sync,
 {
-    while !function(){
+    while !function() {
         sleep_future_runner.sleep_for(sleep_duration).await;
     }
 }

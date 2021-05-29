@@ -61,9 +61,9 @@ impl<CS> Default for MultiCompleteFuture<CS> {
         }
     }
 }
-impl<CS> Clone for MultiCompleteFuture<CS>{
+impl<CS> Clone for MultiCompleteFuture<CS> {
     fn clone(&self) -> Self {
-        Self{
+        Self {
             inner: self.inner.clone(),
         }
     }
