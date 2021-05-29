@@ -1,3 +1,6 @@
+### single_executor v0.3.1
+- Added `Clone` to executor handles
+
 ## single_executor v0.3.0
 - Updated `concurrency_traits` to v0.7
 - Added `MultiCompleteFuture`
