@@ -8,7 +8,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::{Context, Poll, Waker};
 
 /// A version of [`CompleteFuture`](simple_futures::complete_future::CompleteFuture) that can be cloned to have multiple futures pointing to the same "complete-ness".
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct MultiCompleteFuture<CS> {
     inner: Arc<MultiCompleteFutureInner<CS>>,
 }
@@ -58,6 +58,13 @@ impl<CS> Default for MultiCompleteFuture<CS> {
                 waker_queue: SpinLock::new((false, VecDeque::new())),
                 complete: AtomicBool::new(false),
             }),
+        }
+    }
+}
+impl<CS> Clone for MultiCompleteFuture<CS>{
+    fn clone(&self) -> Self {
+        Self{
+            inner: self.inner.clone(),
         }
     }
 }
