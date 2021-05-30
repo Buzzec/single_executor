@@ -1,3 +1,6 @@
+### single_executor v0.3.5
+- Hotfix queue bug
+
 ### single_executor v0.3.3
 - Fixed handle clone
 

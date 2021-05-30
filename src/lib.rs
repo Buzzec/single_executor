@@ -21,7 +21,7 @@ pub use timeout_future::*;
 
 use alloc::boxed::Box;
 use alloc::sync::{Arc, Weak};
-use concurrency_traits::queue::{Queue, TimeoutQueue};
+use concurrency_traits::queue::{TimeoutQueue, TryQueue};
 use concurrency_traits::{ConcurrentSystem, ThreadSpawner, TryThreadSpawner};
 use core::fmt;
 use core::fmt::Debug;
@@ -242,7 +242,7 @@ where
 #[derive(Clone)]
 struct WakerData {
     /// Could be weak but the overhead isn't worth it to ensure dropping sooner
-    task_queue: Arc<dyn Queue<Item = AsyncTask> + Send + Sync>,
+    task_queue: Arc<dyn TryQueue<Item = AsyncTask> + Send + Sync>,
     task: AsyncTask,
 }
 impl EnsureSend for WakerData {}
