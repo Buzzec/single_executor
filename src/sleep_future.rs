@@ -52,7 +52,10 @@ where
                 .filter_map(|(index, message)| message.as_ref().map(|message| (index, message)))
                 .min_by(|message1, message2| message1.1.sleep_until.cmp(&message2.1.sleep_until))
             {
-                None => inner.queue.pop(),
+                None => match inner.queue.pop_timeout(Duration::from_secs(1)){
+                    None => continue 'MainLoop,
+                    Some(received) => received,
+                },
                 Some((index, message)) => {
                     if message.sleep_until <= CS::current_time() {
                         if let Some(true) = times[index].take().unwrap().future.complete() {
