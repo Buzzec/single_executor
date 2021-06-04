@@ -5,12 +5,12 @@ use alloc::vec::Vec;
 use concurrency_traits::queue::TimeoutQueue;
 use concurrency_traits::{ThreadSpawner, TimeFunctions, TryThreadSpawner};
 use core::future::Future;
+use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 use core::time::Duration;
 use simple_futures::complete_future::{CompleteFuture, CompleteFutureHandle};
 use simple_futures::race_future::{RaceFuture, ShouldFinish};
-use std::marker::PhantomData;
 
 /// Runs asynchronous sleep functions by launching a separate handler thread. Each new instance of this spawns a thread.
 #[derive(Debug)]
