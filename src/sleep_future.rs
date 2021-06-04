@@ -155,7 +155,7 @@ where
     }
 
     /// Runs a given future with a timeout. Allows for a should stop parameter.
-    pub fn timout_for_should_stop<'a, T, F>(
+    pub fn timeout_for_should_stop<'a, T, F>(
         &'a self,
         future: impl FnOnce(ShouldFinish) -> F + 'a,
         time: Duration,
