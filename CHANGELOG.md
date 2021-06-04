@@ -1,3 +1,12 @@
+### single_executor v0.4.1
+- Fixed function typo
+
+## ~~single_executor v0.4.0~~
+- Removed `TimeoutFuture`
+  - Added similar functions to `SleepFutureRunner`
+- Made `SleepFutureRunner` functions async
+- Changed sleep behavior to push to queue on await
+
 ### single_executor v0.3.5
 - Hotfix queue bug
 

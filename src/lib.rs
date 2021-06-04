@@ -10,14 +10,12 @@ mod atomic_state;
 mod multi_complete_future;
 mod polling_future;
 mod sleep_future;
-mod timeout_future;
 
 pub use async_task::*;
 pub use atomic_state::*;
 pub use multi_complete_future::*;
 pub use polling_future::*;
 pub use sleep_future::*;
-pub use timeout_future::*;
 
 use alloc::boxed::Box;
 use alloc::sync::{Arc, Weak};
