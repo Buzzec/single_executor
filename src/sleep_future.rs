@@ -1,4 +1,4 @@
-use crate::EnsureSend;
+use crate::{EnsureSend, EnsureSync};
 use alloc::sync::Arc;
 use alloc::sync::Weak;
 use alloc::vec::Vec;
@@ -9,6 +9,8 @@ use core::pin::Pin;
 use core::task::{Context, Poll};
 use core::time::Duration;
 use simple_futures::complete_future::{CompleteFuture, CompleteFutureHandle};
+use simple_futures::race_future::{RaceFuture, ShouldFinish};
+use std::marker::PhantomData;
 
 /// Runs asynchronous sleep functions by launching a separate handler thread. Each new instance of this spawns a thread.
 #[derive(Debug)]
@@ -17,9 +19,9 @@ where
     CS: TryThreadSpawner<()>,
 {
     inner: Arc<SleepFutureRunnerInner<Q>>,
-    thread_handle: CS::ThreadHandle,
+    phantom_cs: PhantomData<fn() -> CS>,
 }
-impl<'a, Q, CS> SleepFutureRunner<Q, CS>
+impl<Q, CS> SleepFutureRunner<Q, CS>
 where
     Q: 'static + TimeoutQueue<Item = SleepMessage<CS>> + Send + Sync,
     CS: TryThreadSpawner<()> + TimeFunctions,
@@ -28,9 +30,10 @@ where
     pub fn try_new(queue: Q) -> Result<Self, CS::SpawnError> {
         let inner = Arc::new(SleepFutureRunnerInner { queue });
         let inner_clone = Arc::downgrade(&inner);
+        CS::try_spawn(move || Self::thread_function(inner_clone))?;
         Ok(Self {
             inner,
-            thread_handle: CS::try_spawn(move || Self::thread_function(inner_clone))?,
+            phantom_cs: Default::default(),
         })
     }
 
@@ -52,7 +55,7 @@ where
                 .filter_map(|(index, message)| message.as_ref().map(|message| (index, message)))
                 .min_by(|message1, message2| message1.1.sleep_until.cmp(&message2.1.sleep_until))
             {
-                None => match inner.queue.pop_timeout(Duration::from_secs(1)){
+                None => match inner.queue.pop_timeout(Duration::from_secs(1)) {
                     None => continue 'MainLoop,
                     Some(received) => received,
                 },
@@ -113,23 +116,13 @@ where
     }
 
     /// Creates a future that sleeps for a given duration from this call.
-    pub fn sleep_for(&self, time: Duration) -> SleepFuture {
-        let complete_future = CompleteFuture::new();
-        assert!(
-            self.inner
-                .queue
-                .try_push(SleepMessage {
-                    sleep_until: CS::current_time() + time,
-                    future: complete_future.get_handle(),
-                })
-                .is_ok(),
-            "Could not push to queue!"
-        );
-        SleepFuture(complete_future)
+    pub fn sleep_for(&self, time: Duration) -> impl Future<Output = ()> + '_ {
+        let end = CS::current_time() + time;
+        self.sleep_until(end)
     }
 
     /// Creates a future that sleeps until a given [`CS::InstantType`](TimeFunctions::InstantType).
-    pub fn sleep_until(&self, instant: CS::InstantType) -> SleepFuture {
+    pub async fn sleep_until(&self, instant: CS::InstantType) {
         let complete_future = CompleteFuture::new();
         if instant < CS::current_time() {
             assert!(!complete_future.complete());
@@ -142,25 +135,75 @@ where
                         future: complete_future.get_handle(),
                     })
                     .is_ok(),
-                "Could not push to queue"
+                "Could not push to sleep queue"
             );
         }
-        SleepFuture(complete_future)
+        SleepFuture(complete_future).await
     }
 
-    /// Gets a shared reference to the [`CS::ThreadHandle`](TryThreadSpawner::ThreadHandle) that is running the sleep operations.
-    pub fn thread_handle(&self) -> &CS::ThreadHandle {
-        &self.thread_handle
+    /// Runs a given future with a timeout.
+    pub fn timeout_for<'a, T>(
+        &'a self,
+        future: impl Future<Output = T> + 'a,
+        time: Duration,
+    ) -> impl Future<Output = Result<T, ()>> + 'a
+    where
+        T: 'a,
+    {
+        let end = CS::current_time() + time;
+        self.timeout_until(future, end)
     }
 
-    /// Converts this runner into a . If this is the last runner for this thread then the thread will stop soon.
-    pub fn into_thread_handle(self) -> CS::ThreadHandle {
-        self.thread_handle
+    /// Runs a given future with a timeout. Allows for a should stop parameter.
+    pub fn timout_for_should_stop<'a, T, F>(
+        &'a self,
+        future: impl FnOnce(ShouldFinish) -> F + 'a,
+        time: Duration,
+    ) -> impl Future<Output = Result<T, ()>> + 'a
+    where
+        T: 'a,
+        F: Future<Output = T> + 'a,
+    {
+        let end = CS::current_time() + time;
+        self.timeout_until_should_stop(future, end)
+    }
+
+    /// Runs a given future with a timeout.
+    pub async fn timeout_until<T>(
+        &self,
+        future: impl Future<Output = T>,
+        instant: CS::InstantType,
+    ) -> Result<T, ()> {
+        RaceFuture::new(future, self.sleep_until(instant)).await
+    }
+
+    /// Runs a given future with a timeout. Allows for a should stop parameter.
+    pub async fn timeout_until_should_stop<T, F>(
+        &self,
+        future: impl FnOnce(ShouldFinish) -> F,
+        instant: CS::InstantType,
+    ) -> Result<T, ()>
+    where
+        F: Future<Output = T>,
+    {
+        RaceFuture::should_finish_ok(future, self.sleep_until(instant)).await
     }
 }
 #[derive(Debug)]
 struct SleepFutureRunnerInner<Q> {
     queue: Q,
+}
+impl<Q, CS> EnsureSend for SleepFutureRunner<Q, CS>
+where
+    CS: TryThreadSpawner<()>,
+    Q: Send + Sync,
+{
+}
+impl<Q, CS> EnsureSync for SleepFutureRunner<Q, CS>
+where
+    CS: TryThreadSpawner<()>,
+    Q: Send + Sync,
+{
 }
 
 /// The future given by [`SleepFutureRunner`].
