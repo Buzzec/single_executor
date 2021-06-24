@@ -1,4 +1,5 @@
 use crate::fmt;
+use alloc::string::String;
 use alloc::sync::Arc;
 use core::cell::UnsafeCell;
 use core::fmt::{Debug, Formatter};
@@ -10,16 +11,24 @@ type TaskFuture = Pin<Arc<UnsafeCell<dyn Future<Output = ()>>>>;
 /// The tasks used by [`AsyncExecutor`](crate::AsyncExecutor).
 pub struct AsyncTask {
     future: TaskFuture,
+    task_name: String,
 }
-impl<'a> Debug for AsyncTask {
+impl AsyncTask {
+    /// Gets the name of the task
+    pub fn name(&self) -> &String {
+        &self.task_name
+    }
+}
+impl Debug for AsyncTask {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Task").field("future", &"omitted").finish()
     }
 }
-impl<'a> Clone for AsyncTask {
+impl Clone for AsyncTask {
     fn clone(&self) -> Self {
         Self {
             future: self.future.clone(),
+            task_name: self.task_name.clone(),
         }
     }
 
@@ -29,19 +38,21 @@ impl<'a> Clone for AsyncTask {
 }
 impl AsyncTask {
     /// Creates a new async task
-    pub(crate) fn new(future: impl Future<Output = ()> + 'static) -> Self {
+    pub(crate) fn new(future: impl Future<Output = ()> + 'static, task_name: String) -> Self {
         Self {
             future: Arc::pin(UnsafeCell::new(future)),
+            task_name,
         }
     }
 
     /// # Safety
     /// Must be called only on executor thread
     pub(crate) unsafe fn poll(&self, waker: &Waker) {
-        // Safety: Can be created because the arc ensures this future won't move and this will only be called on a single thread.
-        // Ignored because if pending the waker will re-add when ready
+        // Safety: Can be created because the arc ensures this future won't move and
+        // this will only be called on a single thread. Ignored because if
+        // pending the waker will re-add when ready
         let _ = Pin::new_unchecked(&mut *self.future.as_ref().get())
-            .poll(&mut Context::from_waker(&waker));
+            .poll(&mut Context::from_waker(waker));
     }
 }
 // Safety: As long as nothing !Send is accessed outside the executor thread this

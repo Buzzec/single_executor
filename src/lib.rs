@@ -5,22 +5,8 @@
 
 extern crate alloc;
 
-mod async_task;
-mod atomic_state;
-mod multi_complete_future;
-mod polling_future;
-mod sleep_future;
-
-pub use async_task::*;
-pub use atomic_state::*;
-pub use multi_complete_future::*;
-pub use polling_future::*;
-pub use sleep_future::*;
-
 use alloc::boxed::Box;
-use alloc::sync::{Arc, Weak};
-use concurrency_traits::queue::{TimeoutQueue, TryQueue};
-use concurrency_traits::{ConcurrentSystem, ThreadSpawner, TryThreadSpawner};
+use alloc::sync::Arc;
 use core::fmt;
 use core::fmt::Debug;
 use core::future::Future;
@@ -28,8 +14,24 @@ use core::marker::PhantomData;
 use core::ops::Deref;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::{RawWaker, RawWakerVTable, Waker};
-use core::time::Duration;
+
+use concurrency_traits::queue::{LengthQueue, Queue};
+use concurrency_traits::{ConcurrentSystem, ThreadSpawner, TryThreadSpawner};
+use log::{debug, trace};
 use simple_futures::value_future::ValueFuture;
+
+use alloc::string::String;
+pub use async_task::*;
+pub use atomic_state::*;
+pub use executor_handle::*;
+pub use local_executor_handle::*;
+pub use sleep_future::*;
+
+mod async_task;
+mod atomic_state;
+mod executor_handle;
+mod local_executor_handle;
+mod sleep_future;
 
 trait EnsureSend: Send {}
 trait EnsureSync: Sync {}
@@ -79,15 +81,16 @@ pub type AsyncExecutorStd<Q> = AsyncExecutor<Q, concurrency_traits::StdThreadFun
 /// blocking the main thread.
 ///
 /// # Panics
-/// This will panic if [`Q::try_push`](concurrency_traits::queue::TryQueue::try_push) ever fails.
+/// This will panic if
+/// [`Q::try_push`](concurrency_traits::queue::TryQueue::try_push) ever fails.
 ///
 /// # Example
 /// ```
 /// # #[cfg(feature = "std")]
 /// # {
-/// use concurrency_traits::StdThreadFunctions;
 /// use concurrency_traits::queue::ParkQueueStd;
-/// use single_executor::{SleepFutureRunner, spawn_blocking, AsyncExecutorStd};
+/// use concurrency_traits::StdThreadFunctions;
+/// use single_executor::{spawn_blocking, AsyncExecutorStd, SleepFutureRunner};
 /// use std::rc::Rc;
 /// use std::sync::atomic::{AtomicBool, Ordering};
 /// use std::sync::Arc;
@@ -99,31 +102,34 @@ pub type AsyncExecutorStd<Q> = AsyncExecutor<Q, concurrency_traits::StdThreadFun
 /// let sleep_runner = Rc::new(SleepFutureRunner::new(ParkQueueStd::default()));
 ///
 /// let sleep_runner_clone = sleep_runner.clone();
-/// let loop_function = move ||{
+/// let loop_function = move || {
 ///     let sleep_runner_clone = sleep_runner_clone.clone();
 ///     async move {
 ///         // dummy code but shows how you can await
-///         sleep_runner_clone.sleep_for(Duration::from_millis(100)).await;
+///         sleep_runner_clone
+///             .sleep_for(Duration::from_millis(100))
+///             .await;
 ///         // Do stuff
 ///     }
 /// };
-/// executor.submit_loop(
-///     loop_function,
-///     Duration::from_millis(10),
-///     sleep_runner
-/// );
+/// executor.submit_loop(loop_function, Duration::from_millis(10), sleep_runner);
 ///
 /// /// Dummy function
-/// async fn get_something_from_io(){}
+/// async fn get_something_from_io() {}
 /// executor.submit(get_something_from_io());
 ///
 /// /// Dummy blocking function
-/// fn block_for_a_while() -> usize{
+/// fn block_for_a_while() -> usize {
 ///     std::thread::sleep(Duration::from_millis(100));
 ///     100
 /// }
 /// executor.submit(async {
-///     assert_eq!(spawn_blocking::<_, _, StdThreadFunctions>(block_for_a_while).0.await, 100);
+///     assert_eq!(
+///         spawn_blocking::<_, _, StdThreadFunctions>(block_for_a_while)
+///             .0
+///             .await,
+///         100
+///     );
 /// });
 ///
 /// // Nothing runs until run is called on the executor
@@ -148,7 +154,7 @@ pub struct AsyncExecutor<Q, CS> {
 }
 impl<Q, CS> AsyncExecutor<Q, CS>
 where
-    Q: 'static + TimeoutQueue<Item = AsyncTask> + Send + Sync,
+    Q: 'static + Queue<Item = AsyncTask> + Send + Sync,
     CS: ConcurrentSystem<()>,
 {
     /// Creates a new executor from a given queue
@@ -170,69 +176,45 @@ where
     }
 
     /// Gets a handle to the executor through which tasks can be submitted.
-    pub fn handle(&self) -> ExecutorHandle<Q> {
-        ExecutorHandle {
+    pub fn handle(&self) -> SendExecutorHandle<Q> {
+        SendExecutorHandle {
             queue: Arc::downgrade(&self.task_queue),
         }
     }
 
-    /// Gets a handle to the executor through which tasks can be submitted. This handle may not be sent across threads but may submit [`!Send`](Send) futures.
+    /// Gets a handle to the executor through which tasks can be submitted. This
+    /// handle may not be sent across threads but may submit [`!Send`](Send)
+    /// futures.
     pub fn local_handle(&self) -> LocalExecutorHandle<Q> {
-        LocalExecutorHandle {
-            queue: Arc::downgrade(&self.task_queue),
-            phantom_send_sync: Default::default(),
-        }
+        LocalExecutorHandle::from_queue(Arc::downgrade(&self.task_queue))
     }
 
     /// Adds a new future to the executor.
     /// This can be called from within a future.
     /// If this is a long running future (like a loop) then make use of sleep or
     /// use `spawn_loop` instead.
-    pub fn submit(&self, future: impl Future<Output = ()> + 'static) {
+    pub fn submit(&self, future: impl Future<Output = ()> + 'static, task_name: impl Into<String>) {
         self.task_queue
-            .try_push(AsyncTask::new(future))
+            .try_push(AsyncTask::new(future, task_name.into()))
             .expect("Queue is full when spawning!");
     }
 
-    /// Adds a new future that will be called at a set rate.
-    /// Do not do a min loop inside the future, this function handles that for
-    /// you.
-    pub fn submit_loop<SQ, Func, Fut>(
-        &self,
-        mut future_func: Func,
-        delay: Duration,
-        sleep_runner: impl Deref<Target = SleepFutureRunner<SQ, CS>> + 'static,
-    ) where
-        SQ: 'static + TimeoutQueue<Item = SleepMessage<CS>> + Send + Sync,
-        Func: FnMut() -> Fut + 'static,
-        Fut: Future<Output = ()>,
-    {
-        let future = async move {
-            loop {
-                let last = CS::current_time();
-                future_func().await;
-                sleep_runner.sleep_until(last + delay).await;
-            }
-        };
-        self.submit(future)
-    }
-
     /// Runs the executor, must be called or no futures will run.
-    pub fn run(&self, stop: impl Deref<Target = AtomicBool>) {
-        let mut _run_iters: usize = 0;
+    pub fn run(&self, stop: impl Deref<Target = AtomicBool>)
+    where
+        Q: LengthQueue,
+    {
         while !stop.load(Ordering::Acquire) {
-            let task = self.task_queue.pop_timeout(Duration::from_millis(10));
-            if let Some(task) = task {
-                let waker_data = WakerData {
-                    task_queue: self.task_queue.clone(),
-                    task: task.clone(),
-                };
-                let waker = Waker::from(waker_data);
-                unsafe {
-                    task.poll(&waker);
-                }
+            trace!("Task queue length: {}", self.task_queue.len());
+            let task = self.task_queue.pop();
+            let waker_data = WakerData {
+                task_queue: self.task_queue.clone(),
+                task: task.clone(),
+            };
+            let waker = Waker::from(waker_data);
+            unsafe {
+                task.poll(&waker);
             }
-            _run_iters += 1;
         }
     }
 }
@@ -240,7 +222,7 @@ where
 #[derive(Clone)]
 struct WakerData {
     /// Could be weak but the overhead isn't worth it to ensure dropping sooner
-    task_queue: Arc<dyn TryQueue<Item = AsyncTask> + Send + Sync>,
+    task_queue: Arc<dyn LengthQueue<Item = AsyncTask> + Send + Sync>,
     task: AsyncTask,
 }
 impl EnsureSend for WakerData {}
@@ -261,10 +243,15 @@ static WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
     },
     |ptr| {
         let data = unsafe { Box::from_raw(ptr as *const WakerData as *mut WakerData) };
+        let name = data.task.name().clone();
+        let before = data.task_queue.len();
         data.task_queue.try_push(data.task).expect("Queue is full!");
+        let after = data.task_queue.len();
+        debug!("Waking {}, before: {}, after: {}", name, before, after);
     },
     |ptr| {
         let data: &WakerData = unsafe { &*(ptr as *const WakerData) };
+        trace!("Waking {} by ref", data.task.name());
         data.task_queue
             .try_push(data.task.clone())
             .expect("Queue is full!");
@@ -275,86 +262,19 @@ static WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
     },
 );
 
-/// A handle to an executor allowing submission of tasks.
-#[derive(Debug)]
-pub struct ExecutorHandle<Q> {
-    queue: Weak<Q>,
-}
-impl<Q> ExecutorHandle<Q>
-where
-    Q: 'static + TimeoutQueue<Item = AsyncTask> + Send + Sync,
-{
-    /// Submits a task to the executor this handle came from. Will return [`Err`] if the executor was dropped.
-    pub fn submit<F>(&self, future: F) -> Result<(), F>
-    where
-        F: Future<Output = ()> + 'static + Send,
-    {
-        match self.queue.upgrade() {
-            None => Err(future),
-            Some(queue) => {
-                queue
-                    .try_push(AsyncTask::new(future))
-                    .expect("Queue is full!");
-                Ok(())
-            }
-        }
-    }
-}
-impl<Q> Clone for ExecutorHandle<Q> {
-    fn clone(&self) -> Self {
-        Self {
-            queue: self.queue.clone(),
-        }
-    }
-}
-
-/// A handle to an executor allowing submission of tasks. This handle may not be sent across threads but can submit [`!Send`](Send) futures.
-#[derive(Debug)]
-pub struct LocalExecutorHandle<Q> {
-    queue: Weak<Q>,
-    /// Block send and sync
-    phantom_send_sync: PhantomData<*const ()>,
-}
-impl<Q> LocalExecutorHandle<Q>
-where
-    Q: 'static + TimeoutQueue<Item = AsyncTask> + Send + Sync,
-{
-    /// Submits a task to the executor this handle came from. Will return [`Err`] if the executor was dropped.
-    pub fn submit<F>(&self, future: F) -> Result<(), F>
-    where
-        F: Future<Output = ()> + 'static,
-    {
-        match self.queue.upgrade() {
-            None => Err(future),
-            Some(queue) => {
-                queue
-                    .try_push(AsyncTask::new(future))
-                    .expect("Queue is full!");
-                Ok(())
-            }
-        }
-    }
-}
-impl<Q> Clone for LocalExecutorHandle<Q> {
-    fn clone(&self) -> Self {
-        Self {
-            queue: self.queue.clone(),
-            phantom_send_sync: Default::default(),
-        }
-    }
-}
-
 #[cfg(feature = "std")]
 #[cfg(test)]
 mod test {
-    use crate::{AsyncExecutor, SleepFutureRunner};
-    use concurrency_traits::queue::ParkQueue;
-    use concurrency_traits::StdThreadFunctions;
     use std::rc::Rc;
     use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
     use std::sync::Arc;
     use std::thread::{sleep, spawn};
     use std::time::Duration;
+
+    use concurrency_traits::queue::ParkQueue;
+    use concurrency_traits::StdThreadFunctions;
+
+    use crate::{AsyncExecutor, SleepFutureRunner};
 
     #[test]
     fn slam_test() {

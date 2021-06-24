@@ -1,18 +1,18 @@
 use crate::{EnsureSend, EnsureSync};
+use alloc::collections::BinaryHeap;
 use alloc::sync::Arc;
 use alloc::sync::Weak;
-use alloc::vec::Vec;
 use concurrency_traits::queue::TimeoutQueue;
 use concurrency_traits::{ThreadSpawner, TimeFunctions, TryThreadSpawner};
+use core::cmp::{Ordering, Reverse};
 use core::future::Future;
 use core::marker::PhantomData;
-use core::pin::Pin;
-use core::task::{Context, Poll};
 use core::time::Duration;
+use futures::future::AbortHandle;
 use simple_futures::complete_future::{CompleteFuture, CompleteFutureHandle};
-use simple_futures::race_future::{RaceFuture, ShouldFinish};
 
-/// Runs asynchronous sleep functions by launching a separate handler thread. Each new instance of this spawns a thread.
+/// Runs asynchronous sleep functions by launching a separate handler thread.
+/// Each new instance of this spawns a thread.
 #[derive(Debug)]
 pub struct SleepFutureRunner<Q, CS>
 where
@@ -37,7 +37,8 @@ where
         })
     }
 
-    /// Create a new [`SleepFutureRunner`] by launching a thread. Requires thread spawning to be infallible.
+    /// Create a new [`SleepFutureRunner`] by launching a thread. Requires
+    /// thread spawning to be infallible.
     pub fn new(queue: Q) -> Self
     where
         CS: ThreadSpawner<()>,
@@ -46,69 +47,45 @@ where
     }
 
     fn thread_function(inner: Weak<SleepFutureRunnerInner<Q>>) {
-        let mut times: Vec<Option<SleepMessage<CS>>> = Vec::new();
-        let mut first_free = None;
-        'MainLoop: while let Some(inner) = inner.upgrade() {
-            let received = match times
-                .iter()
-                .enumerate()
-                .filter_map(|(index, message)| message.as_ref().map(|message| (index, message)))
-                .min_by(|message1, message2| message1.1.sleep_until.cmp(&message2.1.sleep_until))
-            {
-                None => match inner.queue.pop_timeout(Duration::from_secs(1)) {
-                    None => continue 'MainLoop,
-                    Some(received) => received,
-                },
-                Some((index, message)) => {
-                    if message.sleep_until <= CS::current_time() {
-                        if let Some(true) = times[index].take().unwrap().future.complete() {
-                            panic!("Future was already finished!");
-                        }
-                        if index < first_free.unwrap_or(usize::MAX) {
-                            first_free = Some(index);
-                        }
-                        continue 'MainLoop;
-                    } else {
-                        let current_time = CS::current_time();
-                        let pop_result = if message.sleep_until <= current_time {
-                            inner.queue.try_pop()
-                        } else {
-                            inner.queue.pop_timeout(message.sleep_until - current_time)
-                        };
-                        match pop_result {
-                            None => {
-                                if message.sleep_until <= CS::current_time() {
-                                    if let Some(true) =
-                                        times[index].take().unwrap().future.complete()
-                                    {
-                                        panic!("Future was already finished!");
-                                    }
-                                    if index < first_free.unwrap_or(usize::MAX) {
-                                        first_free = Some(index);
-                                    }
-                                }
-                                continue 'MainLoop;
-                            }
-                            Some(received) => received,
-                        }
+        let mut times: BinaryHeap<Reverse<SleepMessage<CS>>> = BinaryHeap::new();
+        while let Some(inner) = inner.upgrade() {
+            match times.pop() {
+                None => {
+                    if let Some(received) = inner.queue.pop_timeout(Duration::from_secs(1)) {
+                        times.push(Reverse(received));
                     }
                 }
-            };
-
-            if received.sleep_until <= CS::current_time() {
-                if let Some(true) = received.future.complete() {
-                    panic!("Future was already finished!");
-                }
-            } else {
-                match first_free {
-                    None => times.push(Some(received)),
-                    Some(first_free_index) => {
-                        times[first_free_index] = Some(received);
-                        first_free = times
-                            .iter()
-                            .enumerate()
-                            .find(|(_, message)| message.is_none())
-                            .map(|(index, _)| index)
+                Some(Reverse(message)) => {
+                    let current_time = CS::current_time();
+                    match message.sleep_until <= current_time {
+                        true => {
+                            match &message.future {
+                                SleepMessageFuture::CompleteFuture(complete) => if let Some(true) = complete.complete() {
+                                    panic!("Future was already finished!");
+                                }
+                                SleepMessageFuture::AbortHandle(abort) => abort.abort(),
+                            }
+                        }
+                        false => {
+                            match inner.queue.pop_timeout(message.sleep_until - current_time) {
+                                None => {
+                                    if message.sleep_until <= CS::current_time() {
+                                        match &message.future {
+                                            SleepMessageFuture::CompleteFuture(complete) => if let Some(true) = complete.complete() {
+                                                panic!("Future was already finished!");
+                                            }
+                                            SleepMessageFuture::AbortHandle(abort) => abort.abort(),
+                                        }
+                                    } else {
+                                        times.push(Reverse(message));
+                                    }
+                                }
+                                Some(received) => {
+                                    times.push(Reverse(message));
+                                    times.push(Reverse(received));
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -121,24 +98,24 @@ where
         self.sleep_until(end)
     }
 
-    /// Creates a future that sleeps until a given [`CS::InstantType`](TimeFunctions::InstantType).
+    /// Creates a future that sleeps until a given
+    /// [`CS::InstantType`](TimeFunctions::InstantType).
     pub async fn sleep_until(&self, instant: CS::InstantType) {
-        let complete_future = CompleteFuture::new();
         if instant < CS::current_time() {
-            assert!(!complete_future.complete());
         } else {
+            let complete_future = CompleteFuture::new();
             assert!(
                 self.inner
                     .queue
                     .try_push(SleepMessage {
                         sleep_until: instant,
-                        future: complete_future.get_handle(),
+                        future: SleepMessageFuture::CompleteFuture(complete_future.get_handle()),
                     })
                     .is_ok(),
                 "Could not push to sleep queue"
             );
+            complete_future.await
         }
-        SleepFuture(complete_future).await
     }
 
     /// Runs a given future with a timeout.
@@ -154,39 +131,28 @@ where
         self.timeout_until(future, end)
     }
 
-    /// Runs a given future with a timeout. Allows for a should stop parameter.
-    pub fn timeout_for_should_stop<'a, T, F>(
-        &'a self,
-        future: impl FnOnce(ShouldFinish) -> F + 'a,
-        time: Duration,
-    ) -> impl Future<Output = Result<T, ()>> + 'a
-    where
-        T: 'a,
-        F: Future<Output = T> + 'a,
-    {
-        let end = CS::current_time() + time;
-        self.timeout_until_should_stop(future, end)
-    }
-
     /// Runs a given future with a timeout.
     pub async fn timeout_until<T>(
         &self,
         future: impl Future<Output = T>,
         instant: CS::InstantType,
     ) -> Result<T, ()> {
-        RaceFuture::new(future, self.sleep_until(instant)).await
-    }
-
-    /// Runs a given future with a timeout. Allows for a should stop parameter.
-    pub async fn timeout_until_should_stop<T, F>(
-        &self,
-        future: impl FnOnce(ShouldFinish) -> F,
-        instant: CS::InstantType,
-    ) -> Result<T, ()>
-    where
-        F: Future<Output = T>,
-    {
-        RaceFuture::should_finish_ok(future, self.sleep_until(instant)).await
+        if instant < CS::current_time() {
+            Err(())
+        } else {
+            let (future, abort) = futures::future::abortable(future);
+            assert!(
+                self.inner
+                    .queue
+                    .try_push(SleepMessage {
+                        sleep_until: instant,
+                        future: SleepMessageFuture::AbortHandle(abort),
+                    })
+                    .is_ok(),
+                "Could not push to sleep queue"
+            );
+            future.await.map_err(|_|())
+        }
     }
 }
 #[derive(Debug)]
@@ -206,26 +172,66 @@ where
 {
 }
 
-/// The future given by [`SleepFutureRunner`].
-#[derive(Debug)]
-pub struct SleepFuture(CompleteFuture);
-impl Future for SleepFuture {
-    type Output = ();
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Pin::new(&mut self.0).poll(cx)
-    }
-}
-impl EnsureSend for SleepFuture {}
-
 /// Internal message that the queue in [`SleepFutureRunner`] contains.
+#[non_exhaustive]
 #[derive(Debug)]
 pub struct SleepMessage<CS>
 where
     CS: TimeFunctions,
 {
     sleep_until: CS::InstantType,
-    future: CompleteFutureHandle,
+    future: SleepMessageFuture,
+}
+impl<CS> PartialEq for SleepMessage<CS>
+where
+    CS: TimeFunctions,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.sleep_until.eq(&other.sleep_until)
+    }
+}
+impl<CS> Eq for SleepMessage<CS> where CS: TimeFunctions {}
+impl<CS> PartialOrd for SleepMessage<CS>
+where
+    CS: TimeFunctions,
+{
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.sleep_until.partial_cmp(&other.sleep_until)
+    }
+
+    fn lt(&self, other: &Self) -> bool {
+        self.sleep_until.lt(&other.sleep_until)
+    }
+
+    fn le(&self, other: &Self) -> bool {
+        self.sleep_until.le(&other.sleep_until)
+    }
+
+    fn gt(&self, other: &Self) -> bool {
+        self.sleep_until.gt(&other.sleep_until)
+    }
+
+    fn ge(&self, other: &Self) -> bool {
+        self.sleep_until.ge(&other.sleep_until)
+    }
+}
+impl<CS> Ord for SleepMessage<CS>
+where
+    CS: TimeFunctions,
+{
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.sleep_until.cmp(&other.sleep_until)
+    }
+}
+
+/// Internal future type that [`SleepMessage`] contains.
+#[non_exhaustive]
+#[derive(Debug)]
+pub enum SleepMessageFuture {
+    /// A complete future.
+    CompleteFuture(CompleteFutureHandle),
+    /// An abort handle for a foreign future.
+    AbortHandle(AbortHandle),
 }
 
 #[cfg(feature = "std")]

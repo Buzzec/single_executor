@@ -16,10 +16,12 @@ exclude = [
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-concurrency_traits = { version = "0.7.0", default-features = false, features = ["alloc"] }
+concurrency_traits = { version = "0.7.2", default-features = false, features = ["alloc"] }
 simple_futures = { version = "0.1.2", default-features = false, features = ["alloc"] }
+log = "0.4.14"
+futures = { version = "0.3.15", default-features = false, features = ["alloc"] }
 
 [features]
 default = ["std"]
-std = ["concurrency_traits/std", "simple_futures/std"]
+std = ["concurrency_traits/std", "simple_futures/std", "futures/std"]
 nightly = ["concurrency_traits/nightly"]
