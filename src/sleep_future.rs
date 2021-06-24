@@ -58,21 +58,23 @@ where
                 Some(Reverse(message)) => {
                     let current_time = CS::current_time();
                     match message.sleep_until <= current_time {
-                        true => {
-                            match &message.future {
-                                SleepMessageFuture::CompleteFuture(complete) => if let Some(true) = complete.complete() {
+                        true => match &message.future {
+                            SleepMessageFuture::CompleteFuture(complete) => {
+                                if let Some(true) = complete.complete() {
                                     panic!("Future was already finished!");
                                 }
-                                SleepMessageFuture::AbortHandle(abort) => abort.abort(),
                             }
-                        }
+                            SleepMessageFuture::AbortHandle(abort) => abort.abort(),
+                        },
                         false => {
                             match inner.queue.pop_timeout(message.sleep_until - current_time) {
                                 None => {
                                     if message.sleep_until <= CS::current_time() {
                                         match &message.future {
-                                            SleepMessageFuture::CompleteFuture(complete) => if let Some(true) = complete.complete() {
-                                                panic!("Future was already finished!");
+                                            SleepMessageFuture::CompleteFuture(complete) => {
+                                                if let Some(true) = complete.complete() {
+                                                    panic!("Future was already finished!");
+                                                }
                                             }
                                             SleepMessageFuture::AbortHandle(abort) => abort.abort(),
                                         }
@@ -151,7 +153,7 @@ where
                     .is_ok(),
                 "Could not push to sleep queue"
             );
-            future.await.map_err(|_|())
+            future.await.map_err(|_| ())
         }
     }
 }
